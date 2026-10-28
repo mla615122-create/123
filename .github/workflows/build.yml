@@ -1,0 +1,63 @@
+name: Build APK and AAB from ZIP
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Extract ZIP and Prepare Flutter Project
+        run: |
+          unzip -q prism_drop_flutter_project.zip -d extracted_src
+          flutter create --org com.studio --project-name prism_drop build_app
+          rm -rf build_app/lib build_app/pubspec.yaml
+          cp -r extracted_src/prism_drop/lib build_app/lib
+          cp extracted_src/prism_drop/pubspec.yaml build_app/pubspec.yaml
+          mkdir -p build_app/assets/images build_app/assets/audio
+          cp -f extracted_src/prism_drop/android/app/proguard-rules.pro build_app/android/app/proguard-rules.pro
+          cp -f extracted_src/prism_drop/android/app/src/main/AndroidManifest.xml build_app/android/app/src/main/AndroidManifest.xml
+          rm -rf build_app/android/app/src/main/kotlin/com/studio/prism_drop
+          mkdir -p build_app/android/app/src/main/kotlin/com/studio/prismdrop
+          cp -f extracted_src/prism_drop/android/app/src/main/kotlin/com/studio/prismdrop/MainActivity.kt build_app/android/app/src/main/kotlin/com/studio/prismdrop/MainActivity.kt
+          rm -f build_app/android/app/build.gradle build_app/android/build.gradle build_app/android/settings.gradle
+          cp -f extracted_src/prism_drop/android/app/build.gradle.kts build_app/android/app/build.gradle.kts
+          cp -f extracted_src/prism_drop/android/build.gradle.kts build_app/android/build.gradle.kts
+          cp -f extracted_src/prism_drop/android/settings.gradle.kts build_app/android/settings.gradle.kts
+          cp -f extracted_src/prism_drop/android/gradle.properties build_app/android/gradle.properties
+          sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.10.2-all.zip|g' build_app/android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Build Release APK and Google Play AAB
+        working-directory: build_app
+        run: |
+          flutter pub get
+          flutter build apk --release --no-tree-shake-icons
+          flutter build appbundle --release --no-tree-shake-icons
+
+      - name: Upload Playable APK (Install on Phone)
+        uses: actions/upload-artifact@v4
+        with:
+          name: prism-drop-release-apk
+          path: build_app/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload Google Play Store AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: prism-drop-release-aab
+          path: build_app/build/app/outputs/bundle/release/app-release.aab
